@@ -1,0 +1,5 @@
+pytest
+torch
+tensorflow
+warpctc
+k2
