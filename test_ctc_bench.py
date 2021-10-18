@@ -2,6 +2,7 @@ import os
 import time
 import pytest
 import torch
+import tensorflow as tf
 import k2
 
 from ctc_benchmark.utils.log import logger
@@ -33,6 +34,8 @@ class TestCTCBench:
             - input_lengths: Tensor
             - target_lengths: Tensor
         """
+        torch.manual_seed(1987)
+
         # batch_size = 32
         self.input_length = 1000
         self.vocab_size = 100 # include blank (= 0, by default)
@@ -76,6 +79,15 @@ class TestCTCBench:
 
         return dense_fsa_vec, decoding_graph
 
+    def convert_inputs_to_tf(self):
+        labels = self.targets.detach().numpy()
+        labels = tf.convert_to_tensor(labels)
+
+        logits = self.log_probs.detach().numpy()
+        logits = tf.convert_to_tensor(logits)
+
+        return labels, logits
+
     def test_k2_forward(self, benchmark):
         self.prepare_inputs()
         dense_fsa_vec, decoding_graph = self.convert_inputs_to_k2()
@@ -106,6 +118,10 @@ class TestCTCBench:
             retain_graph=True
         )
 
+        print(f"k2: \
+              {self.log_probs=}, {self.targets=}, \
+              {k2_loss=}, {grad_out=}")
+
     def test_torch_forward(self, benchmark, use_cudnn: bool = False):
         self.prepare_inputs()
 
@@ -134,20 +150,46 @@ class TestCTCBench:
                 retain_graph=True
             )
 
+            print(f"torch: \
+                  {self.log_probs=}, {self.targets=}, \
+                  {forward_res=}, {grad_out=}")
+
     def test_torch_forward_with_cudnn(self, benchmark):
         self.test_torch_forward(benchmark, use_cudnn=True)
 
     def test_torch_backward_with_cudnn(self, benchmark):
         self.test_torch_backward(benchmark, use_cudnn=True)
 
-    def test_warpctc_forward(self, benchmark):
-        return
-
-    def test_warpctc_backward(self, benchmark):
-        return
-
     def test_tf_forward(self, benchmark):
-        return
+        self.prepare_inputs()
+        labels, logits = self.convert_inputs_to_tf()
+
+        forward_res = benchmark(
+            tf.nn.ctc_loss,
+            labels=labels,
+            logits=logits,
+            logit_length=self.input_lengths,
+            label_length=self.target_lengths
+        )
 
     def test_tf_backward(self, benchmark):
-        return
+        self.prepare_inputs()
+        labels, logits = self.convert_inputs_to_tf()
+
+        with tf.GradientTape(persistent=True) as t:
+            forward_res = tf.nn.ctc_loss(
+                labels=labels,
+                logits=logits,
+                logit_length=self.input_lengths,
+                label_length=self.target_lengths
+            )
+
+        with
+        grad_out = benchmark(
+            t.gradient,
+            forward_res, logits
+        )
+
+        print(f"tensorflow: \
+              {logits=}, {labels=}, \
+              {forward_res=}, {grad_out=}")
