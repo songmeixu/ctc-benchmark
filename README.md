@@ -37,6 +37,11 @@ pytest -k "backward" --benchmark-columns='mean' .
 
 ![](results/backward.png "backward benchmark results")
 
+### Versions
+- TF: v2.6.0
+- torch: v1.8.2
+- k2: v1.9
+
 ### Explainations
 - TF test in eager execution mode, this may introduce the overhead
 - K2 test at python API level as others, which include `py->c++` call cost. K2 uses pybind11 as the binding framework, which may introduce the overhead.
@@ -45,6 +50,8 @@ pytest -k "backward" --benchmark-columns='mean' .
 ## Todo
 - [ ] Remove TF eager mode overhead from benchmark results.
 - [ ] Remove K2 pybind11 overhead between python API -> c++ API from benchmark results, through call c++ API directly.
+- [ ] Add [GTN](https://github.com/facebookresearch/gtn) ctc alternative.
+- [ ] Add comparations about more aspects of those CTC implementations.
 
 ## Built Using <a name = "built_using"></a>
 - [Pytest](https://github.com/pytest-dev/pytest) - Python Test Framework
