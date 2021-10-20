@@ -5,24 +5,16 @@ import torch
 import tensorflow as tf
 import k2
 
-from ctc_benchmark.utils.log import logger
-
-
-# ctc_candidates = [
-#     # 'k2.ctc_Loss',
-#     # 'warpctc',
-#     torch.nn.functional.ctc_loss,
-#     # torch.nn.functional.ctc_loss,
-#     # 'tf.nn.ctc_loss'
-# ]
-
 
 @pytest.mark.benchmark(
     group='ctc',
     warmup=True,
     warmup_iterations=3,
-    disable_gc=False,
+    disable_gc=True,
     timer=time.perf_counter,
+    min_rounds=10,
+    # min_time=1,
+    # max_time=10,
 )
 class TestCTCBench:
 
@@ -37,10 +29,10 @@ class TestCTCBench:
         torch.manual_seed(1987)
 
         # batch_size = 32
-        self.input_length = 1000
-        self.vocab_size = 100 # include blank (= 0, by default)
+        self.input_length = 150
+        self.vocab_size = 28 # include blank (= 0, by default)
         self.batch_size = 32
-        target_length = 50
+        target_length = 40
 
         # [T, N, C]
         self.log_probs = torch.randn(
@@ -92,7 +84,7 @@ class TestCTCBench:
         self.prepare_inputs()
         dense_fsa_vec, decoding_graph = self.convert_inputs_to_k2()
 
-        k2_loss = benchmark(
+        benchmark(
             k2.ctc_loss,
             decoding_graph,
             dense_fsa_vec,
@@ -104,29 +96,25 @@ class TestCTCBench:
         self.prepare_inputs()
         dense_fsa_vec, decoding_graph = self.convert_inputs_to_k2()
 
-        k2_loss = k2.ctc_loss(
+        ctc_loss = k2.ctc_loss(
             decoding_graph,
             dense_fsa_vec,
             reduction='sum',
             target_lengths=self.target_lengths
         )
 
-        grad_out = torch.randn_like(k2_loss)
+        grad_out = torch.randn_like(ctc_loss)
         benchmark(
             torch.autograd.grad,
-            k2_loss, self.log_probs, grad_out.cuda(),
+            ctc_loss, self.log_probs, grad_out.cuda(),
             retain_graph=True
         )
-
-        print(f"k2: \
-              {self.log_probs=}, {self.targets=}, \
-              {k2_loss=}, {grad_out=}")
 
     def test_torch_forward(self, benchmark, use_cudnn: bool = False):
         self.prepare_inputs()
 
         with torch.backends.cudnn.flags(enabled=use_cudnn):
-            forward_res = benchmark(
+            benchmark(
                 torch.nn.functional.ctc_loss,
                 self.log_probs.cuda(), self.targets.cuda(),
                 self.input_lengths, self.target_lengths,
@@ -137,22 +125,18 @@ class TestCTCBench:
         self.prepare_inputs()
 
         with torch.backends.cudnn.flags(enabled=use_cudnn):
-            forward_res = torch.nn.functional.ctc_loss(
+            ctc_loss = torch.nn.functional.ctc_loss(
                 self.log_probs.cuda(), self.targets.cuda(),
                 self.input_lengths, self.target_lengths,
                 reduction='sum', zero_infinity=True
             )
 
-            grad_out = torch.randn_like(forward_res)
+            grad_out = torch.randn_like(ctc_loss)
             benchmark(
                 torch.autograd.grad,
-                forward_res, self.log_probs, grad_out.cuda(),
+                ctc_loss, self.log_probs, grad_out.cuda(),
                 retain_graph=True
             )
-
-            print(f"torch: \
-                  {self.log_probs=}, {self.targets=}, \
-                  {forward_res=}, {grad_out=}")
 
     def test_torch_forward_with_cudnn(self, benchmark):
         self.test_torch_forward(benchmark, use_cudnn=True)
@@ -160,36 +144,40 @@ class TestCTCBench:
     def test_torch_backward_with_cudnn(self, benchmark):
         self.test_torch_backward(benchmark, use_cudnn=True)
 
-    def test_tf_forward(self, benchmark):
+    def test_tf_forward(self, benchmark, device='gpu'):
         self.prepare_inputs()
         labels, logits = self.convert_inputs_to_tf()
 
-        forward_res = benchmark(
-            tf.nn.ctc_loss,
-            labels=labels,
-            logits=logits,
-            logit_length=self.input_lengths,
-            label_length=self.target_lengths
-        )
-
-    def test_tf_backward(self, benchmark):
-        self.prepare_inputs()
-        labels, logits = self.convert_inputs_to_tf()
-
-        with tf.GradientTape(persistent=True) as t:
-            forward_res = tf.nn.ctc_loss(
+        with tf.device(f"/{device}:0"):
+            benchmark(
+                tf.nn.ctc_loss,
                 labels=labels,
                 logits=logits,
                 logit_length=self.input_lengths,
                 label_length=self.target_lengths
+                )
+
+    def test_tf_backward(self, benchmark, device='gpu'):
+        self.prepare_inputs()
+        labels, logits = self.convert_inputs_to_tf()
+
+        with tf.device(f"/{device}:0"):
+            with tf.GradientTape(persistent=True) as t:
+                t.watch(logits)
+                ctc_loss = tf.nn.ctc_loss(
+                    labels=labels,
+                    logits=logits,
+                    logit_length=self.input_lengths,
+                    label_length=self.target_lengths
+                )
+
+            benchmark(
+                t.gradient,
+                ctc_loss, [logits]
             )
 
-        with
-        grad_out = benchmark(
-            t.gradient,
-            forward_res, logits
-        )
+    def test_tf_forward_cpu(self, benchmark):
+        self.test_tf_forward(benchmark, device='cpu')
 
-        print(f"tensorflow: \
-              {logits=}, {labels=}, \
-              {forward_res=}, {grad_out=}")
+    def test_tf_backward_cpu(self, benchmark):
+        self.test_tf_backward(benchmark, device='cpu')
