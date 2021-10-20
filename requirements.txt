@@ -1,5 +1,5 @@
 pytest
 pytest-benchmark
 torch
-tensorflow
+tensorflow-gpu
 k2
