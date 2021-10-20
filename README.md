@@ -29,7 +29,6 @@ pytest -k "forward" --benchmark-columns='mean' .
 pytest -k "backward" --benchmark-columns='mean' .
 ```
 
-
 ### Results
 - ctc forward benchmark results
 
@@ -37,6 +36,15 @@ pytest -k "backward" --benchmark-columns='mean' .
 - ctc backward benchmark results
 
 ![](results/backward.png "backward benchmark results")
+
+### Explainations
+- TF test in eager execution mode, this may introduce the overhead
+- K2 test at python API level as others, which include `py->c++` call cost. K2 uses pybind11 as the binding framework, which may introduce the overhead.
+- CTC implementation of CUDNN is the backend of `torch_with_cudnn` and `tf_with_gpu`
+
+## Todo
+- [ ] Remove TF eager mode overhead from benchmark results.
+- [ ] Remove K2 pybind11 overhead between python API -> c++ API from benchmark results, through call c++ API directly.
 
 ## Built Using <a name = "built_using"></a>
 - [Pytest](https://github.com/pytest-dev/pytest) - Python Test Framework
